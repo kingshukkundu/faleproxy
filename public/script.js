@@ -11,11 +11,23 @@ document.addEventListener('DOMContentLoaded', () => {
     urlForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const url = urlInput.value.trim();
+        let url = urlInput.value.trim();
         
         if (!url) {
             showError('Please enter a valid URL');
             return;
+        }
+        
+        // Basic validation - ensure there's at least a domain name
+        if (!url.includes('.')) {
+            showError('Please enter a valid domain name');
+            return;
+        }
+        
+        // Automatically add https:// if protocol is missing
+        if (!url.match(/^https?:\/\//i)) {
+            url = 'https://' + url;
+            urlInput.value = url; // Update the input field with the corrected URL
         }
         
         // Show loading indicator
@@ -45,7 +57,10 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Create a sandboxed iframe to display the content
             const iframe = document.createElement('iframe');
-            iframe.sandbox = 'allow-same-origin allow-scripts';
+            iframe.sandbox = 'allow-same-origin allow-scripts allow-popups';
+            iframe.style.width = '100%';
+            iframe.style.border = 'none';
+            iframe.style.overflow = 'auto';
             contentDisplay.innerHTML = '';
             contentDisplay.appendChild(iframe);
             
@@ -55,16 +70,55 @@ document.addEventListener('DOMContentLoaded', () => {
             iframeDocument.write(data.content);
             iframeDocument.close();
             
-            // Adjust iframe height to match content
+            // Function to adjust iframe height
+            const adjustIframeHeight = () => {
+                try {
+                    const height = iframeDocument.documentElement.scrollHeight || 
+                                  iframeDocument.body.scrollHeight || 800;
+                    iframe.style.height = `${height}px`;
+                } catch (e) {
+                    console.error('Error adjusting iframe height:', e);
+                    iframe.style.height = '800px';
+                }
+            };
+            
+            // Adjust iframe height on load and when content changes
             iframe.onload = function() {
-                iframe.style.height = iframeDocument.body.scrollHeight + 'px';
-                
                 // Make sure links open in a new tab
-                const links = iframeDocument.querySelectorAll('a');
-                links.forEach(link => {
-                    link.target = '_blank';
-                    link.rel = 'noopener noreferrer';
-                });
+                try {
+                    const links = iframeDocument.querySelectorAll('a');
+                    links.forEach(link => {
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                    });
+                    
+                    // Add listener for images loading to readjust height
+                    const images = iframeDocument.querySelectorAll('img');
+                    images.forEach(img => {
+                        if (img.complete) {
+                            adjustIframeHeight();
+                        } else {
+                            img.addEventListener('load', adjustIframeHeight);
+                            img.addEventListener('error', adjustIframeHeight);
+                        }
+                    });
+                    
+                    // Add resize observer to handle dynamic content
+                    if (window.ResizeObserver) {
+                        const resizeObserver = new ResizeObserver(() => {
+                            adjustIframeHeight();
+                        });
+                        resizeObserver.observe(iframeDocument.body);
+                    }
+                    
+                    // Initial height adjustment
+                    adjustIframeHeight();
+                    
+                    // Set a timer to readjust height after a delay (for late-loading content)
+                    setTimeout(adjustIframeHeight, 1000);
+                } catch (e) {
+                    console.error('Error in iframe onload:', e);
+                }
             };
             
             // Show result container
