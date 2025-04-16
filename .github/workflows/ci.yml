@@ -2,7 +2,7 @@ name: Faleproxy CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ '*' ]
   pull_request:
     branches: [ main, master ]
 
@@ -11,14 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: true
       matrix:
         node-version: [18.x, 20.x]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
@@ -27,35 +28,86 @@ jobs:
       run: npm ci
       
     - name: Run tests
-      run: npm run test:ci
+      run: npm test
       
     - name: Upload coverage report
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: coverage/
-        
-  deploy:
+
+  deploy-production:
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    # Only deploy to production when tests pass on main branch
+    if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Add environment variables to check if secrets exist
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
+    - name: Use Node.js
+      uses: actions/setup-node@v4
       with:
-        node-version: '18.x'
+        node-version: '20.x'
+        cache: 'npm'
         
-    - name: Install Vercel CLI
-      run: npm install --global vercel@latest
+    - name: Install dependencies
+      run: npm ci
       
-    - name: Pull Vercel Environment Information
-      run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+    # Check if Vercel secrets are available
+    - name: Check Vercel secrets
+      id: vercel_check
+      # Continue only if VERCEL_TOKEN is set
+      if: env.VERCEL_TOKEN != ''
+      run: echo "has_secrets=true" >> $GITHUB_OUTPUT
       
-    - name: Build Project Artifacts
-      run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+    - name: Deploy to Vercel (Production)
+      # Only run if secrets check passed
+      if: steps.vercel_check.outputs.has_secrets == 'true'
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        vercel-args: '--prod'
+
+  deploy-preview:
+    runs-on: ubuntu-latest
+    # Deploy preview for any push (including branches where tests fail)
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    # Add environment variables to check if secrets exist
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
       
-    - name: Deploy Project Artifacts to Vercel
-      run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+    # Check if Vercel secrets are available
+    - name: Check Vercel secrets
+      id: vercel_check
+      # Continue only if VERCEL_TOKEN is set
+      if: env.VERCEL_TOKEN != ''
+      run: echo "has_secrets=true" >> $GITHUB_OUTPUT
+      
+    - name: Deploy to Vercel (Preview)
+      # Only run if secrets check passed
+      if: steps.vercel_check.outputs.has_secrets == 'true'
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        github-comment: true
+        github-token: ${{ secrets.GITHUB_TOKEN }}
