@@ -38,8 +38,12 @@ jobs:
 
   deploy-production:
     needs: test
+    # Only deploy to production when tests pass on main branch
     if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Add environment variables to check if secrets exist
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     
     steps:
     - uses: actions/checkout@v4
@@ -53,7 +57,16 @@ jobs:
     - name: Install dependencies
       run: npm ci
       
+    # Check if Vercel secrets are available
+    - name: Check Vercel secrets
+      id: vercel_check
+      # Continue only if VERCEL_TOKEN is set
+      if: env.VERCEL_TOKEN != ''
+      run: echo "has_secrets=true" >> $GITHUB_OUTPUT
+      
     - name: Deploy to Vercel (Production)
+      # Only run if secrets check passed
+      if: steps.vercel_check.outputs.has_secrets == 'true'
       uses: amondnet/vercel-action@v25
       with:
         vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -65,6 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     # Deploy preview for any push (including branches where tests fail)
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    # Add environment variables to check if secrets exist
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     
     steps:
     - uses: actions/checkout@v4
@@ -78,7 +94,16 @@ jobs:
     - name: Install dependencies
       run: npm ci
       
+    # Check if Vercel secrets are available
+    - name: Check Vercel secrets
+      id: vercel_check
+      # Continue only if VERCEL_TOKEN is set
+      if: env.VERCEL_TOKEN != ''
+      run: echo "has_secrets=true" >> $GITHUB_OUTPUT
+      
     - name: Deploy to Vercel (Preview)
+      # Only run if secrets check passed
+      if: steps.vercel_check.outputs.has_secrets == 'true'
       uses: amondnet/vercel-action@v25
       with:
         vercel-token: ${{ secrets.VERCEL_TOKEN }}
