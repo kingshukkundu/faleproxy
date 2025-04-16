@@ -1,3 +1,12 @@
+// Debounce function to limit how often a function is called
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const urlForm = document.getElementById('url-form');
     const urlInput = document.getElementById('url-input');
@@ -57,30 +66,64 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Create a sandboxed iframe to display the content
             const iframe = document.createElement('iframe');
-            iframe.sandbox = 'allow-same-origin allow-scripts allow-popups';
+            iframe.sandbox = 'allow-same-origin allow-scripts allow-popups allow-forms';
+            iframe.setAttribute('referrerpolicy', 'no-referrer');
             iframe.style.width = '100%';
             iframe.style.border = 'none';
             iframe.style.overflow = 'auto';
             contentDisplay.innerHTML = '';
             contentDisplay.appendChild(iframe);
             
-            // Write the modified HTML to the iframe
+            // Write the sanitized HTML to the iframe
             const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
             iframeDocument.open();
-            iframeDocument.write(data.content);
+            
+            // Sanitize the HTML content before writing to the iframe
+            const sanitizedContent = DOMPurify.sanitize(data.content, {
+                ADD_TAGS: ['iframe', 'base', 'style', 'link', 'meta'], // Allow these tags for styling and functionality
+                ADD_ATTR: ['sandbox', 'allow', 'allowfullscreen', 'frameborder', 'scrolling', 'rel', 'href', 'type', 'media', 'integrity', 'crossorigin', 'id', 'class'], // Allow attributes needed for styling
+                FORCE_BODY: true, // Ensure there's always a body element
+                WHOLE_DOCUMENT: true, // Process the entire document including <!DOCTYPE> and <html>
+                RETURN_DOM_FRAGMENT: false, // Return HTML as a string
+                RETURN_DOM: false,
+                USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true }, // Enable all HTML profiles
+                KEEP_CONTENT: true // Keep content of elements removed
+            });
+            
+            iframeDocument.write(sanitizedContent);
             iframeDocument.close();
             
-            // Function to adjust iframe height
+            // Variables to control height adjustment
+            let heightAdjustmentCount = 0;
+            const MAX_HEIGHT_ADJUSTMENTS = 10;
+            const MAX_IFRAME_HEIGHT = 10000; // Maximum height in pixels
+            
+            // Function to adjust iframe height with limitations
             const adjustIframeHeight = () => {
+                // Limit the number of height adjustments
+                if (heightAdjustmentCount >= MAX_HEIGHT_ADJUSTMENTS) {
+                    console.log('Maximum height adjustments reached');
+                    return;
+                }
+                
+                heightAdjustmentCount++;
+                
                 try {
-                    const height = iframeDocument.documentElement.scrollHeight || 
-                                  iframeDocument.body.scrollHeight || 800;
+                    let height = iframeDocument.documentElement.scrollHeight || 
+                                iframeDocument.body.scrollHeight || 800;
+                    
+                    // Enforce maximum height
+                    height = Math.min(height, MAX_IFRAME_HEIGHT);
+                    
                     iframe.style.height = `${height}px`;
                 } catch (e) {
                     console.error('Error adjusting iframe height:', e);
                     iframe.style.height = '800px';
                 }
             };
+            
+            // Create debounced version of the height adjustment function
+            const debouncedAdjustHeight = debounce(adjustIframeHeight, 200);
             
             // Adjust iframe height on load and when content changes
             iframe.onload = function() {
@@ -96,26 +139,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     const images = iframeDocument.querySelectorAll('img');
                     images.forEach(img => {
                         if (img.complete) {
-                            adjustIframeHeight();
+                            debouncedAdjustHeight();
                         } else {
-                            img.addEventListener('load', adjustIframeHeight);
-                            img.addEventListener('error', adjustIframeHeight);
+                            img.addEventListener('load', debouncedAdjustHeight);
+                            img.addEventListener('error', debouncedAdjustHeight);
                         }
                     });
                     
-                    // Add resize observer to handle dynamic content
+                    // Add resize observer to handle dynamic content with debouncing
                     if (window.ResizeObserver) {
                         const resizeObserver = new ResizeObserver(() => {
-                            adjustIframeHeight();
+                            debouncedAdjustHeight();
                         });
                         resizeObserver.observe(iframeDocument.body);
+                        
+                        // Disconnect observer after a certain time to prevent infinite loops
+                        setTimeout(() => {
+                            console.log('Disconnecting ResizeObserver to prevent infinite adjustments');
+                            resizeObserver.disconnect();
+                        }, 10000); // Disconnect after 10 seconds
                     }
                     
                     // Initial height adjustment
                     adjustIframeHeight();
                     
-                    // Set a timer to readjust height after a delay (for late-loading content)
-                    setTimeout(adjustIframeHeight, 1000);
+                    // Final height adjustment for late-loading content
+                    setTimeout(() => {
+                        adjustIframeHeight();
+                        // Reset counter to allow manual adjustments later if needed
+                        heightAdjustmentCount = 0;
+                    }, 2000);
                 } catch (e) {
                     console.error('Error in iframe onload:', e);
                 }
