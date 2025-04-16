@@ -38,13 +38,6 @@ describe('Client-side script functionality', () => {
   let originalConsoleError;
   let originalConsoleLog;
   
-  // Debug CI environment
-  beforeAll(() => {
-    console.log('Running tests in environment:', process.env.CI ? 'CI' : 'Local');
-    console.log('Node version:', process.version);
-    console.log('Test environment:', process.env.NODE_ENV);
-  });
-  
   beforeEach(() => {
     // Create a clean DOM environment for each test
     document.body.innerHTML = fs.readFileSync(
@@ -167,12 +160,6 @@ describe('Client-side script functionality', () => {
   });
 
   test('successful form submission should display content', async () => {
-    // Skip this test in CI environments due to jsdom differences
-    if (process.env.CI) {
-      console.log('Skipping form submission test in CI environment');
-      return;
-    }
-    
     // This test simply verifies basic form submission and UI state updates
     const form = document.getElementById('url-form');
     const input = document.getElementById('url-input');
